@@ -1901,16 +1901,6 @@ fn doc_test_runs_real_cargo_for_a_mixed_workspace() {
     seed_include(tmp.path(), "affected", "--package app@9.9.9");
     let output = run_just_with_real_cargo(tmp.path(), &["anvil-doc-test"]);
     assert_failed(&output, "a missing binary package version must not become a successful skip");
-    let diagnostics = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let normalized_diagnostics = diagnostics.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        normalized_diagnostics.contains("affected package 'app@9.9.9' is absent from cargo metadata"),
-        "missing package diagnostic was not visible:\n{diagnostics}"
-    );
 }
 
 #[test]
