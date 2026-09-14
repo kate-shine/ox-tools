@@ -70,11 +70,12 @@ in place. The rename carries the permissions of the manifest it replaces.
 A symlinked manifest is resolved first, so the rename lands on the file the
 link points at rather than replacing the link.
 
-Before the rename the manifest is re-read and compared against the bytes
-that were parsed. An edit that arrives while `cargo metadata` runs is
-therefore detected and the fix abandoned. The check narrows that window
-rather than closing it: an edit landing between the comparison and the
-rename is still overwritten.
+Before the rename the root manifest and every member manifest are re-read
+and compared against the bytes used by detection. An edit that arrives while
+`cargo metadata` or manifest scanning runs is therefore detected and the fix
+abandoned. The checks narrow that window rather than closing it: an edit
+landing between the comparisons and the rename can still be overwritten or
+invalidated by the catalog change.
 
 Comments on a removed entry are carried to the next surviving entry, which
 keeps a group header attached to the group it introduces. A note about one

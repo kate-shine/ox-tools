@@ -40,6 +40,24 @@ pub struct WorkspaceCatalog {
     pub allowed: BTreeSet<String>,
 }
 
+/// Inheritance evidence collected from the workspace member manifests.
+pub struct Inheritance {
+    /// Catalog keys inherited by at least one member.
+    pub keys: BTreeSet<String>,
+
+    /// Manifest inputs whose contents support that conclusion.
+    pub inputs: Vec<ManifestInput>,
+}
+
+/// One manifest and the contents read during detection.
+pub struct ManifestInput {
+    /// Path Cargo reported for the member manifest.
+    pub path: PathBuf,
+
+    /// Exact contents used to detect inherited catalog keys.
+    pub contents: String,
+}
+
 /// Read a manifest's text.
 pub fn read_manifest_text(path: &Path) -> Result<String> {
     std::fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))
@@ -49,11 +67,6 @@ pub fn read_manifest_text(path: &Path) -> Result<String> {
 pub fn parse_manifest(text: &str, path: &Path) -> Result<DocumentMut> {
     text.parse::<DocumentMut>()
         .with_context(|| format!("failed to parse {}", path.display()))
-}
-
-/// Read and parse a manifest.
-pub fn read_manifest(path: &Path) -> Result<DocumentMut> {
-    parse_manifest(&read_manifest_text(path)?, path)
 }
 
 /// Classify a parsed manifest.
@@ -124,15 +137,21 @@ fn array_of<'a>(configured: Option<&'a Item>, key: &str) -> Result<impl Iterator
 /// `members` are manifest paths as reported by `cargo metadata`; a manifest that
 /// cannot be read or parsed fails the run rather than being silently treated as
 /// inheriting nothing, which would turn a read error into false accusations.
-pub fn inherited(members: &[PathBuf]) -> Result<BTreeSet<String>> {
+pub fn inherited(members: &[PathBuf]) -> Result<Inheritance> {
     let mut keys = BTreeSet::new();
+    let mut inputs = Vec::with_capacity(members.len());
 
     for member in members {
-        let doc = read_manifest(member)?;
+        let contents = read_manifest_text(member)?;
+        let doc = parse_manifest(&contents, member)?;
         collect_inherited(&doc, &mut keys);
+        inputs.push(ManifestInput {
+            path: member.clone(),
+            contents,
+        });
     }
 
-    Ok(keys)
+    Ok(Inheritance { keys, inputs })
 }
 
 /// Record every catalog key a single manifest inherits.

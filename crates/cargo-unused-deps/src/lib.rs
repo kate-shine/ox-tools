@@ -62,11 +62,12 @@
 //! A symlinked manifest is resolved first, so the rename lands on the file the
 //! link points at rather than replacing the link.
 //!
-//! Before the rename the manifest is re-read and compared against the bytes
-//! that were parsed. An edit that arrives while `cargo metadata` runs is
-//! therefore detected and the fix abandoned. The check narrows that window
-//! rather than closing it: an edit landing between the comparison and the
-//! rename is still overwritten.
+//! Before the rename the root manifest and every member manifest are re-read
+//! and compared against the bytes used by detection. An edit that arrives while
+//! `cargo metadata` or manifest scanning runs is therefore detected and the fix
+//! abandoned. The checks narrow that window rather than closing it: an edit
+//! landing between the comparisons and the rename can still be overwritten or
+//! invalidated by the catalog change.
 //!
 //! Comments on a removed entry are carried to the next surviving entry, which
 //! keeps a group header attached to the group it introduces. A note about one
@@ -112,7 +113,7 @@ use clap::builder::styling::{AnsiColor, Effects};
 use clap::{Parser, Subcommand};
 use tempfile::NamedTempFile;
 
-use crate::detect::{Catalog, WorkspaceCatalog};
+use crate::detect::{Catalog, ManifestInput, WorkspaceCatalog};
 use crate::fix::Carry;
 
 // Deliberately identical to the palette of the repository's other styled Cargo
@@ -216,13 +217,13 @@ fn check(manifest_path: &Path, fix: bool, require_workspace: bool) -> Result<Exi
     }
 
     let members = members_of(manifest_path)?;
-    let inherited = detect::inherited(&members)?;
-    let (unused, stale) = detect::partition(&catalog, &inherited);
+    let inheritance = detect::inherited(&members)?;
+    let (unused, stale) = detect::partition(&catalog, &inheritance.keys);
 
     report_stale(&stale);
 
     if unused.is_empty() {
-        report_clean(manifest_path, &catalog, &inherited, members.len());
+        report_clean(manifest_path, &catalog, &inheritance.keys, members.len());
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -232,7 +233,7 @@ fn check(manifest_path: &Path, fix: bool, require_workspace: bool) -> Result<Exi
     }
 
     let outcome = fix::remove(&mut manifest, &unused);
-    write_back(manifest_path, &original, &manifest.to_string())?;
+    write_back(manifest_path, &original, &inheritance.inputs, &manifest.to_string())?;
 
     println!(
         "🧹 Removed {} unused workspace {} from {}.",
@@ -247,15 +248,16 @@ fn check(manifest_path: &Path, fix: bool, require_workspace: bool) -> Result<Exi
 
 /// Replace `manifest_path` with `contents`.
 ///
-/// The replacement is atomic, and happens only if the file still holds what was
-/// read.
+/// The replacement is atomic, and happens only if every manifest input still
+/// holds what detection read.
 ///
 /// The workspace root manifest is the one file whose loss breaks every other
 /// tool in the repository, so it is never truncated in place: the replacement
 /// is written to a temporary file in the same directory and renamed over the
-/// original, which is atomic on one filesystem. `cargo metadata` runs between
-/// the read and the write, and it is a child process, so that window is wide
-/// enough for an editor to save into it -- hence the unchanged-input guard.
+/// original, which is atomic on one filesystem. `cargo metadata` and member
+/// scanning run between the reads and the write, so that window is wide enough
+/// for an editor to save into either the root or a member manifest -- hence the
+/// unchanged-input guards.
 ///
 /// Replacing a file by rename brings the temporary file's identity with it, so
 /// two properties an in-place write would have kept are restored deliberately:
@@ -269,7 +271,7 @@ fn check(manifest_path: &Path, fix: bool, require_workspace: bool) -> Result<Exi
 /// - **Symlinks.** A symlinked manifest is resolved first, so the rename lands
 ///   on the file the link points at and the indirection survives. Replacing the
 ///   link itself would quietly turn it into a regular file.
-fn write_back(manifest_path: &Path, original: &str, contents: &str) -> Result<()> {
+fn write_back(manifest_path: &Path, original: &str, member_inputs: &[ManifestInput], contents: &str) -> Result<()> {
     // Eagerly formatted rather than built in `with_context` closures: those
     // closures only run on failures no test can force portably.
     let resolve_failure = format!("failed to resolve {}", manifest_path.display());
@@ -289,6 +291,16 @@ fn write_back(manifest_path: &Path, original: &str, contents: &str) -> Result<()
         "{} changed on disk while the check was running; not writing",
         manifest_path.display()
     );
+
+    for input in member_inputs {
+        let current =
+            fs::read_to_string(&input.path).with_context(|| format!("failed to re-read {} before writing", input.path.display()))?;
+        ensure!(
+            current == input.contents,
+            "{} changed on disk while the check was running; not writing",
+            input.path.display()
+        );
+    }
 
     let permissions = fs::metadata(&target).context(metadata_failure)?.permissions();
     let directory = target
@@ -413,7 +425,7 @@ mod tests {
         let path = dir.path().join("Cargo.toml");
         fs::write(&path, "original").expect("failed to seed the manifest");
 
-        write_back(&path, "original", "replacement").expect("an unchanged manifest is replaced");
+        write_back(&path, "original", &[], "replacement").expect("an unchanged manifest is replaced");
 
         assert_eq!(fs::read_to_string(&path).expect("failed to read back"), "replacement");
     }
@@ -424,7 +436,7 @@ mod tests {
         let path = dir.path().join("Cargo.toml");
         fs::write(&path, "edited by someone else").expect("failed to seed the manifest");
 
-        let error = write_back(&path, "original", "replacement").expect_err("a changed manifest is refused");
+        let error = write_back(&path, "original", &[], "replacement").expect_err("a changed manifest is refused");
 
         assert!(
             error.to_string().contains("changed on disk while the check was running"),
@@ -434,6 +446,57 @@ mod tests {
             fs::read_to_string(&path).expect("failed to read back"),
             "edited by someone else",
             "the competing edit must survive"
+        );
+    }
+
+    #[test]
+    fn write_back_refuses_a_member_manifest_that_changed_under_it() {
+        let dir = TempDir::new().expect("failed to create temp dir");
+        let root = dir.path().join("Cargo.toml");
+        let member = dir.path().join("member.toml");
+        fs::write(&root, "original").expect("failed to seed the root manifest");
+        fs::write(&member, "edited by someone else").expect("failed to seed the member manifest");
+        let inputs = [crate::detect::ManifestInput {
+            path: member,
+            contents: "member original".to_owned(),
+        }];
+
+        let error = write_back(&root, "original", &inputs, "replacement").expect_err("a changed member manifest is refused");
+
+        assert!(
+            error.to_string().contains("changed on disk while the check was running"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(
+            fs::read_to_string(&root).expect("failed to read back"),
+            "original",
+            "the root manifest must not be replaced"
+        );
+    }
+
+    #[test]
+    fn write_back_refuses_a_member_manifest_that_disappeared() {
+        let dir = TempDir::new().expect("failed to create temp dir");
+        let root = dir.path().join("Cargo.toml");
+        let missing = dir.path().join("missing.toml");
+        fs::write(&root, "original").expect("failed to seed the root manifest");
+        let inputs = [crate::detect::ManifestInput {
+            path: missing.clone(),
+            contents: "member original".to_owned(),
+        }];
+
+        let error = write_back(&root, "original", &inputs, "replacement").expect_err("an unreadable member manifest is refused");
+
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("failed to re-read {} before writing", missing.display())),
+            "unexpected error: {error}"
+        );
+        assert_eq!(
+            fs::read_to_string(&root).expect("failed to read back"),
+            "original",
+            "the root manifest must not be replaced"
         );
     }
 }
