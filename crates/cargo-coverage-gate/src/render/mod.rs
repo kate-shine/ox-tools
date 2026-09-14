@@ -34,8 +34,15 @@ fn format_lines(outcome: &PackageOutcome) -> String {
             let n = outcome.totals.count;
             if n == 1 { "1 line".to_owned() } else { format!("{n} lines") }
         }
-        _ => outcome.percent().map_or_else(|| "(no data)".to_owned(), |p| format!("{p:.1}%")),
+        _ => outcome
+            .percent()
+            .map_or_else(|| "(no data)".to_owned(), |p| format!("{:.1}%", floor_percent_for_display(p))),
     }
+}
+
+/// Round a non-negative coverage percentage down to one decimal place.
+fn floor_percent_for_display(percent: f64) -> f64 {
+    (percent * 10.0).floor() / 10.0
 }
 
 /// Human-readable text for the `Threshold` column.
@@ -235,6 +242,20 @@ mod tests {
     fn format_delta_returns_dash_for_no_data() {
         let o = outcome(0, 0, 80.0);
         assert_eq!(format_delta(&o), "—");
+    }
+
+    #[test]
+    fn measured_percentages_round_down_for_display() {
+        assert_eq!(format_lines(&outcome(2_000, 1_999, 100.0)), "99.9%");
+        assert_eq!(format_lines(&outcome(10_000, 8_195, 82.0)), "81.9%");
+        assert_eq!(format_lines(&outcome(100, 100, 100.0)), "100.0%");
+    }
+
+    #[test]
+    fn floor_percent_for_display_keeps_one_decimal_without_rounding_up() {
+        assert!((floor_percent_for_display(99.95) - 99.9).abs() < f64::EPSILON);
+        assert!((floor_percent_for_display(81.999) - 81.9).abs() < f64::EPSILON);
+        assert!((floor_percent_for_display(100.0) - 100.0).abs() < f64::EPSILON);
     }
 
     #[test]

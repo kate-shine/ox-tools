@@ -684,10 +684,10 @@ per-package aggregation must produce the same percentage byte-for-byte given
 the same lcov input, regardless of file iteration order. This holds for
 free because the aggregation step sums integer line counters (commutative
 and associative), and the f64 percentage is computed once at the end.
-The displayed value rounds to one decimal place (matching
-cargo-llvm-cov's default text-summary precision). Pass/fail evaluation
-uses the unrounded percentage so presentation precision cannot weaken
-the configured threshold — see §10.5.
+The displayed measured percentage rounds down to one decimal place.
+Configured thresholds display to one decimal place using normal numeric
+formatting. Pass/fail evaluation uses the unrounded values so presentation
+precision cannot weaken the configured threshold — see §10.5.
 
 ### 10.2 Security
 
@@ -745,11 +745,12 @@ Percentage comparisons use the unrounded measured value:
 the configured floor. In particular, a `100.0` threshold passes only when
 every coverable line is covered.
 
-A near-boundary failure can therefore display the same one-decimal percentage
-as its threshold and a `0.0pp` delta. The status and exact covered/coverable
-line counts remain authoritative; retaining one-decimal display precision
-keeps the table consistent with cargo-llvm-cov's default text summary without
-changing policy semantics.
+A measured percentage is rounded down to one decimal place for display, so a
+near-boundary failure remains visibly below its threshold. For example,
+`1999 / 2000 = 99.95%` displays as `99.9%` and fails a `100.0%` threshold.
+The delta can still display as `0.0pp` when its magnitude is below the displayed
+precision. The status and exact covered/coverable line counts remain
+authoritative.
 
 ## 11. Out-of-Scope, Possible Extensions
 
