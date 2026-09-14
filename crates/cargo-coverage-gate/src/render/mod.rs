@@ -65,14 +65,18 @@ fn format_delta(outcome: &PackageOutcome) -> String {
     };
     let delta = pct - outcome.threshold.min_lines_percent;
     // Round to the displayed precision (one decimal place) before choosing a sign
-    // so sub-precision floating-point noise doesn't render as a misleading
-    // "-0.0pp" or "+0.0pp". Verdict classification uses unrounded values, so
-    // a near-boundary failure may intentionally display a "0.0pp" delta.
+    // for ordinary values. A non-zero sub-precision margin retains its direction
+    // so the rendered row cannot obscure why the unrounded comparison passed or
+    // failed.
     let rounded = (delta * 10.0).round() / 10.0;
     if rounded > 0.0 {
         format!("+{rounded:.1}pp")
     } else if rounded < 0.0 {
         format!("{rounded:.1}pp")
+    } else if delta > 0.0 {
+        "+<0.1pp".to_owned()
+    } else if delta < 0.0 {
+        "-<0.1pp".to_owned()
     } else {
         "0.0pp".to_owned()
     }
@@ -209,33 +213,14 @@ mod tests {
     }
 
     #[test]
-    fn format_delta_collapses_sub_precision_noise_to_unsigned_zero() {
-        // 82/100 - 82.0 is exactly zero algebraically but the recomputed
-        // percentage can drift by ~1e-13 due to f64 representation.
-        // We must not render "-0.0pp" or "+0.0pp" — just "0.0pp".
-        let o = outcome(100, 82, 82.0);
-        assert_eq!(format_delta(&o), "0.0pp");
+    fn format_delta_preserves_sub_precision_direction() {
+        assert_eq!(format_delta(&outcome(10_000, 8_196, 81.95)), "+<0.1pp");
+        assert_eq!(format_delta(&outcome(2_000, 1_999, 100.0)), "-<0.1pp");
+    }
 
-        // Tiny positive drift below the displayed precision rounds to zero too.
-        let mut o = outcome(100, 82, 82.0);
-        o.totals = LineTotals {
-            count: 100_000_000,
-            covered: 82_000_001,
-        };
-        // 82.000001 - 82.0 = 1e-6 -> rounds to 0.0pp.
-        assert_eq!(format_delta(&o), "0.0pp");
-
-        // Tiny negative drift below the displayed precision must also render as
-        // unsigned "0.0pp", not "-0.0pp". `f64::round` on a sub-precision negative
-        // value yields `-0.0`, so the `< 0.0` branch must reject it (and not be
-        // weakened to `<= 0.0`, which would print "-0.0pp").
-        let mut o = outcome(100, 82, 82.0);
-        o.totals = LineTotals {
-            count: 100_000_000,
-            covered: 81_999_999,
-        };
-        // 81.999999 - 82.0 = -1e-6 -> rounds to -0.0 -> must render as "0.0pp".
-        assert_eq!(format_delta(&o), "0.0pp");
+    #[test]
+    fn format_delta_renders_exact_match_as_zero() {
+        assert_eq!(format_delta(&outcome(100, 82, 82.0)), "0.0pp");
     }
 
     #[test]

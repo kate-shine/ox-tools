@@ -748,9 +748,9 @@ every coverable line is covered.
 A measured percentage is rounded down to one decimal place for display, so a
 near-boundary failure remains visibly below its threshold. For example,
 `1999 / 2000 = 99.95%` displays as `99.9%` and fails a `100.0%` threshold.
-The delta can still display as `0.0pp` when its magnitude is below the displayed
-precision. The status and exact covered/coverable line counts remain
-authoritative.
+Non-zero deltas below the displayed precision retain their direction as
+`+<0.1pp` or `-<0.1pp`; only an exact match displays as `0.0pp`. The status and
+exact covered/coverable line counts remain authoritative.
 
 ## 11. Out-of-Scope, Possible Extensions
 

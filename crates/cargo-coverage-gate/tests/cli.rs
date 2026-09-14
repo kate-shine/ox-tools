@@ -163,6 +163,7 @@ fn displayed_rounding_does_not_satisfy_full_coverage_threshold() {
         .code(1)
         .stdout(predicate::str::contains("99.9%"))
         .stdout(predicate::str::contains("100.0%"))
+        .stdout(predicate::str::contains("-<0.1pp"))
         .stdout(predicate::str::contains("FAIL"))
         .stdout(predicate::str::contains("1999/2000 lines covered; 1 uncovered."));
 }
