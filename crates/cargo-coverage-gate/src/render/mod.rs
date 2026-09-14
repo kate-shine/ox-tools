@@ -64,19 +64,21 @@ fn format_delta(outcome: &PackageOutcome) -> String {
         return "—".to_owned();
     };
     let delta = pct - outcome.threshold.min_lines_percent;
-    // Round to the displayed precision (one decimal place) before choosing a sign
-    // for ordinary values. A non-zero sub-precision margin retains its direction
-    // so the rendered row cannot obscure why the unrounded comparison passed or
-    // failed.
+    // A non-zero sub-precision margin retains its direction so the rendered row
+    // cannot obscure why the unrounded comparison passed or failed.
+    if delta > 0.0 && delta < 0.1 {
+        return "+<0.1pp".to_owned();
+    }
+    if delta < 0.0 && delta > -0.1 {
+        return "-<0.1pp".to_owned();
+    }
+
+    // Ordinary values use the displayed precision of one decimal place.
     let rounded = (delta * 10.0).round() / 10.0;
     if rounded > 0.0 {
         format!("+{rounded:.1}pp")
     } else if rounded < 0.0 {
         format!("{rounded:.1}pp")
-    } else if delta > 0.0 {
-        "+<0.1pp".to_owned()
-    } else if delta < 0.0 {
-        "-<0.1pp".to_owned()
     } else {
         "0.0pp".to_owned()
     }
@@ -216,6 +218,8 @@ mod tests {
     fn format_delta_preserves_sub_precision_direction() {
         assert_eq!(format_delta(&outcome(10_000, 8_196, 81.95)), "+<0.1pp");
         assert_eq!(format_delta(&outcome(2_000, 1_999, 100.0)), "-<0.1pp");
+        assert_eq!(format_delta(&outcome(10_000, 8_200, 81.91)), "+<0.1pp");
+        assert_eq!(format_delta(&outcome(10_000, 8_200, 82.09)), "-<0.1pp");
     }
 
     #[test]
