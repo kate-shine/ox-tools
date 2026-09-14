@@ -62,10 +62,11 @@
 //! A symlinked manifest is resolved first, so the rename lands on the file the
 //! link points at rather than replacing the link.
 //!
-//! Before the rename the root manifest and every member manifest are re-read
-//! and compared against the bytes used by detection. An edit that arrives while
+//! Before the rename Cargo re-resolves the workspace member set, then the root
+//! manifest and every original member manifest are re-read and compared against
+//! the bytes used by detection. A workspace change that arrives while
 //! `cargo metadata` or manifest scanning runs is therefore detected and the fix
-//! abandoned. The checks narrow that window rather than closing it: an edit
+//! abandoned. The checks narrow that window rather than closing it: a change
 //! landing between the comparisons and the rename can still be overwritten or
 //! invalidated by the catalog change.
 //!
@@ -233,6 +234,7 @@ fn check(manifest_path: &Path, fix: bool, require_workspace: bool) -> Result<Exi
     }
 
     let outcome = fix::remove(&mut manifest, &unused);
+    verify_members_unchanged(manifest_path, &members)?;
     write_back(manifest_path, &original, &inheritance.inputs, &manifest.to_string())?;
 
     println!(
@@ -335,6 +337,20 @@ fn members_of(manifest_path: &Path) -> Result<Vec<PathBuf>> {
         .collect())
 }
 
+/// Re-resolve workspace membership and refuse a fix when its input set changed.
+fn verify_members_unchanged(manifest_path: &Path, expected: &[PathBuf]) -> Result<()> {
+    let current = members_of(manifest_path)?;
+    let expected: BTreeSet<&Path> = expected.iter().map(PathBuf::as_path).collect();
+    let current: BTreeSet<&Path> = current.iter().map(PathBuf::as_path).collect();
+
+    ensure!(
+        current == expected,
+        "workspace membership changed while the check was running; not writing"
+    );
+
+    Ok(())
+}
+
 /// Report allow-list entries that suppressed nothing.
 fn report_stale(stale: &[String]) {
     for name in stale {
@@ -413,7 +429,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::write_back;
+    use super::{verify_members_unchanged, write_back};
 
     /// The unchanged-input guard cannot be driven from an integration test: the
     /// window it protects is between the read and the write of a single run, so
@@ -497,6 +513,49 @@ mod tests {
             fs::read_to_string(&root).expect("failed to read back"),
             "original",
             "the root manifest must not be replaced"
+        );
+    }
+
+    #[test]
+    fn membership_comparison_ignores_order() {
+        let dir = TempDir::new().expect("failed to create temp dir");
+        let root = dir.path().join("Cargo.toml");
+        let alpha = dir.path().join("alpha");
+        let beta = dir.path().join("beta");
+        fs::create_dir_all(alpha.join("src")).expect("failed to create alpha");
+        fs::create_dir_all(beta.join("src")).expect("failed to create beta");
+        fs::write(&root, "[workspace]\nmembers = [\"alpha\", \"beta\"]\nresolver = \"2\"\n").expect("failed to write root manifest");
+        for (path, name) in [(&alpha, "alpha"), (&beta, "beta")] {
+            fs::write(
+                path.join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"),
+            )
+            .expect("failed to write member manifest");
+            fs::write(path.join("src/lib.rs"), "").expect("failed to write member source");
+        }
+        let expected = vec![beta.join("Cargo.toml"), alpha.join("Cargo.toml")];
+
+        verify_members_unchanged(&root, &expected).expect("member order is not significant");
+    }
+
+    #[test]
+    fn membership_comparison_rejects_a_new_member() {
+        let dir = TempDir::new().expect("failed to create temp dir");
+        let root = dir.path().join("Cargo.toml");
+        let member = dir.path().join("member");
+        fs::create_dir_all(member.join("src")).expect("failed to create member");
+        fs::write(&root, "[workspace]\nmembers = [\"*\"]\nresolver = \"2\"\n").expect("failed to write root manifest");
+        fs::write(member.join("Cargo.toml"), "[package]\nname = \"member\"\nversion = \"0.1.0\"\n")
+            .expect("failed to write member manifest");
+        fs::write(member.join("src/lib.rs"), "").expect("failed to write member source");
+
+        let error = verify_members_unchanged(&root, &[]).expect_err("a newly matched member must invalidate the fix");
+
+        assert!(
+            error
+                .to_string()
+                .contains("workspace membership changed while the check was running"),
+            "unexpected error: {error}"
         );
     }
 }

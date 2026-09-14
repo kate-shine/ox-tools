@@ -70,10 +70,11 @@ in place. The rename carries the permissions of the manifest it replaces.
 A symlinked manifest is resolved first, so the rename lands on the file the
 link points at rather than replacing the link.
 
-Before the rename the root manifest and every member manifest are re-read
-and compared against the bytes used by detection. An edit that arrives while
+Before the rename Cargo re-resolves the workspace member set, then the root
+manifest and every original member manifest are re-read and compared against
+the bytes used by detection. A workspace change that arrives while
 `cargo metadata` or manifest scanning runs is therefore detected and the fix
-abandoned. The checks narrow that window rather than closing it: an edit
+abandoned. The checks narrow that window rather than closing it: a change
 landing between the comparisons and the rename can still be overwritten or
 invalidated by the catalog change.
 

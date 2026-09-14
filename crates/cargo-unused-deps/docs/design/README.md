@@ -171,14 +171,15 @@ a lockfile that changes after a fix indicates unrelated drift.
 The workspace root manifest is the one file whose loss breaks every other tool in
 the repository, so it is never truncated in place. The replacement is written to a
 temporary file in the manifest's own directory and renamed over the original, which
-is atomic on a single filesystem. Before that rename the root manifest and every
-member manifest are re-read and compared against the bytes used by detection:
-`cargo metadata` and member scanning run in between, which is a wide enough window
-for an editor to save into any input. An edit that lands there aborts the fix rather
-than letting the command remove a catalog entry from evidence that is no longer
-current. These comparisons narrow the remaining window rather than closing it; an
-edit landing after them can still be overwritten or invalidated by the catalog
-change.
+is atomic on a single filesystem. Before that rename Cargo re-resolves the member
+set and compares it with the original set, then the root manifest and every
+original member manifest are re-read and compared against the bytes used by
+detection. `cargo metadata` and member scanning run in between, which is a wide
+enough window for an editor to save into an input or for a glob to match a new
+member. A change that lands there aborts the fix rather than letting the command
+remove a catalog entry from evidence that is no longer current. These comparisons
+narrow the remaining window rather than closing it; a change landing after them
+can still be overwritten or invalidated by the catalog change.
 
 Replacing a file by rename brings the temporary file's identity with it, so two
 properties an in-place write would have kept are restored deliberately. The manifest's
