@@ -685,9 +685,9 @@ the same lcov input, regardless of file iteration order. This holds for
 free because the aggregation step sums integer line counters (commutative
 and associative), and the f64 percentage is computed once at the end.
 The displayed value rounds to one decimal place (matching
-cargo-llvm-cov's default text-summary precision), and the pass/fail
-comparison rounds to the same precision before comparing — see
-§10.5 for the rationale.
+cargo-llvm-cov's default text-summary precision). Pass/fail evaluation
+uses the unrounded percentage so presentation precision cannot weaken
+the configured threshold — see §10.5.
 
 ### 10.2 Security
 
@@ -740,12 +740,16 @@ Rust with `cargo-llvm-cov ≥ 0.7`**. Two reasons:
 
 ### 10.5 Float comparison
 
-Percentage comparisons round both sides to the displayed precision (one
-decimal place) before comparing: `round(pct * 10) >= round(threshold * 10)`.
-This guarantees the rendered "Δ vs threshold" column always agrees with the
-pass/fail verdict — anything that prints as ≥ the threshold passes,
-anything that prints as below it fails. There is no separate tolerance
-constant to tune.
+Percentage comparisons use the unrounded measured value:
+`pct >= threshold`. Display rounding is presentation-only and never relaxes
+the configured floor. In particular, a `100.0` threshold passes only when
+every coverable line is covered.
+
+A near-boundary failure can therefore display the same one-decimal percentage
+as its threshold and a `0.0pp` delta. The status and exact covered/coverable
+line counts remain authoritative; retaining one-decimal display precision
+keeps the table consistent with cargo-llvm-cov's default text summary without
+changing policy semantics.
 
 ## 11. Out-of-Scope, Possible Extensions
 
