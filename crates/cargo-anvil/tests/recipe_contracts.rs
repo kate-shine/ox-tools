@@ -1906,8 +1906,9 @@ fn doc_test_runs_real_cargo_for_a_mixed_workspace() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    let normalized_diagnostics = diagnostics.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        diagnostics.contains("affected package 'app@9.9.9' is absent from cargo metadata"),
+        normalized_diagnostics.contains("affected package 'app@9.9.9' is absent from cargo metadata"),
         "missing package diagnostic was not visible:\n{diagnostics}"
     );
 }
