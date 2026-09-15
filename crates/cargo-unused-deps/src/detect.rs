@@ -76,20 +76,23 @@ pub fn parse_manifest(text: &str, path: &Path) -> Result<DocumentMut> {
 ///
 /// # Errors
 ///
-/// Returns an error when `allowed` is not an array of strings. Skipping a
-/// mis-typed entry would leave the configuration behaving as though nothing
-/// were allowed, which is hard to tell from a configuration that simply does
-/// not work.
+/// Returns an error when `workspace.dependencies` is present but not table-like,
+/// or when `allowed` is not an array of strings. Treating either malformed
+/// value as absent would make invalid configuration look clean.
 pub fn catalog(manifest: &DocumentMut) -> Result<Catalog> {
     let Some(workspace) = manifest.get("workspace").and_then(Item::as_table_like) else {
         return Ok(Catalog::NotAWorkspace);
     };
 
-    let declared = workspace
-        .get("dependencies")
-        .and_then(Item::as_table_like)
-        .map(|table| table.iter().map(|(key, _)| key.to_owned()).collect())
-        .unwrap_or_default();
+    let declared = match workspace.get("dependencies") {
+        None => Vec::new(),
+        Some(item) => item
+            .as_table_like()
+            .ok_or_else(|| anyhow!("[workspace.dependencies] must be a table, found {}", item.type_name()))?
+            .iter()
+            .map(|(key, _)| key.to_owned())
+            .collect(),
+    };
 
     let configured = workspace
         .get("metadata")

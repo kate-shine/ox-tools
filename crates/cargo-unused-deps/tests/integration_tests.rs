@@ -258,6 +258,19 @@ fn a_non_array_allow_list_is_an_error() {
 }
 
 #[test]
+fn a_non_table_workspace_dependency_catalog_is_an_error() {
+    let dir = workspace("[workspace]\nmembers = [\"member\"]\ndependencies = \"bad\"\n", &[("member", "")]);
+
+    let (success, _, stderr) = outcome(&run(&dir.path().join("Cargo.toml"), &[]));
+
+    assert!(!success, "a malformed dependency catalog must not pass silently");
+    assert!(
+        stderr.contains("[workspace.dependencies] must be a table"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
 fn fix_removes_the_entries_and_keeps_the_rest_intact() {
     let root = concat!(
         "[workspace]\nmembers = [\"member\"]\n\n",
