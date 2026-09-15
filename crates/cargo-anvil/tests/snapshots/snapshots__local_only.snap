@@ -1149,7 +1149,12 @@ anvil-doc-test: anvil-doc-test-validate-prereqs anvil-impact
         $libraryKinds = @('lib', 'rlib', 'dylib', 'cdylib', 'staticlib', 'proc-macro')
         # Cargo package names are case-sensitive, unlike PowerShell hashtable keys.
         $packages = [System.Collections.Generic.Dictionary[string, bool]]::new([System.StringComparer]::Ordinal)
+        $workspaceMembers = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($member in $metadata.workspace_members) {
+            [void]$workspaceMembers.Add([string]$member)
+        }
         foreach ($package in $metadata.packages) {
+            if (-not $workspaceMembers.Contains([string]$package.id)) { continue }
             $hasLibrary = @($package.targets | Where-Object {
                 @($_.kind | Where-Object { $_ -in $libraryKinds }).Count -gt 0
             }).Count -gt 0
@@ -1163,7 +1168,7 @@ anvil-doc-test: anvil-doc-test-validate-prereqs anvil-impact
             }
             $spec = $pkg[$i + 1]
             if (-not $packages.ContainsKey($spec)) {
-                throw "anvil-doc-test: affected package '$spec' is absent from cargo metadata"
+                throw "anvil-doc-test: affected package '$spec' is absent from cargo workspace metadata"
             }
             if ($packages[$spec]) { $selected += @('--package', $spec) }
         }

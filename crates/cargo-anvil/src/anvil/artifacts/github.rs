@@ -275,7 +275,7 @@ mod tests {
             .expect("cargo-binstall action should have a version");
         assert!(fast_path.contains(&format!("version: \"{version}\"")));
         assert!(fallback.contains("if: steps.cargo-binstall.outcome == 'failure'"));
-        assert!(fallback.contains(&format!("cargo install --locked --version {version} cargo-binstall")));
+        assert!(fallback.contains(&format!("cargo install --force --locked --version {version} cargo-binstall")));
         assert!(fallback.contains("::warning::cargo-binstall release install failed"));
     }
 

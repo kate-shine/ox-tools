@@ -1939,6 +1939,23 @@ fn doc_test_rejects_invalid_selections_and_propagates_cargo_failure() {
             assert!(String::from_utf8_lossy(&output.stderr).contains("anvil-doc-test:"));
         }
     }
+
+    let tmp = fixture(
+        &[("doc-test.just", DOC_TEST), ("impact.just", IMPACT)],
+        &["anvil-doc-test-validate-prereqs", "anvil-doc-test-setup installer", "anvil-impact"],
+    );
+    seed_include(tmp.path(), "affected", "--package external-dep@0.1.0");
+    let output = run_just(
+        tmp.path(),
+        &["anvil-doc-test"],
+        &[("FAKE_NON_MEMBER_PACKAGE_NAME", OsStr::new("external-dep"))],
+    );
+    assert_failed(&output, "a non-workspace package must not be selected for doctests");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("absent from cargo workspace metadata"),
+        "a non-workspace package must produce a workspace-specific diagnostic:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]

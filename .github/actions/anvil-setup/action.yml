@@ -123,7 +123,7 @@ runs:
       shell: bash
       run: |
         echo "::warning::cargo-binstall release install failed; building the pinned version from source"
-        cargo install --locked --version 1.21.0 cargo-binstall
+        cargo install --force --locked --version 1.21.0 cargo-binstall
 
     - name: Install just
       shell: pwsh -NoProfile -Command ". '{0}'"
