@@ -149,7 +149,8 @@ pub fn job_wrapper() -> Artifact {
 /// # Examples
 ///
 /// ```
-/// use cargo_anvil::{Catalog, artifacts::ado};
+/// use cargo_anvil::Catalog;
+/// use cargo_anvil::artifacts::ado;
 ///
 /// let catalog = Catalog::anvil()
 ///     .into_builder()
@@ -172,9 +173,8 @@ pub fn before_checks() -> Artifact {
 /// ```
 /// use cargo_anvil::artifacts::ado;
 ///
-/// let hook = ado::after_checks().with_body(
-///     "steps:\n  - script: echo finalizing\n    condition: always()\n",
-/// );
+/// let hook = ado::after_checks()
+///     .with_body("steps:\n  - script: echo finalizing\n    condition: always()\n");
 /// ```
 #[must_use]
 pub fn after_checks() -> Artifact {
