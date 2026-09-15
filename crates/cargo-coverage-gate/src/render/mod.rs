@@ -34,15 +34,15 @@ fn format_lines(outcome: &PackageOutcome) -> String {
             let n = outcome.totals.count;
             if n == 1 { "1 line".to_owned() } else { format!("{n} lines") }
         }
-        _ => outcome
-            .percent()
-            .map_or_else(|| "(no data)".to_owned(), |p| format!("{:.1}%", floor_percent_for_display(p))),
+        _ if outcome.totals.count == 0 => "(no data)".to_owned(),
+        _ => format_percent_for_display(outcome),
     }
 }
 
-/// Round a non-negative coverage percentage down to one decimal place.
-fn floor_percent_for_display(percent: f64) -> f64 {
-    (percent * 10.0).floor() / 10.0
+/// Format a coverage percentage rounded down to one decimal place.
+fn format_percent_for_display(outcome: &PackageOutcome) -> String {
+    let tenths = u64::from(outcome.totals.covered) * 1_000 / u64::from(outcome.totals.count);
+    format!("{}.{:01}%", tenths / 10, tenths % 10)
 }
 
 /// Human-readable text for the `Threshold` column.
@@ -66,10 +66,12 @@ fn format_delta(outcome: &PackageOutcome) -> String {
     let delta = pct - outcome.threshold.min_lines_percent;
     // A non-zero sub-precision margin retains its direction so the rendered row
     // cannot obscure why the unrounded comparison passed or failed.
-    if delta > 0.0 && delta < 0.1 {
+    let measured_tenths = f64::from(outcome.totals.covered).mul_add(1_000.0, 0.0) / f64::from(outcome.totals.count);
+    let threshold_tenths = outcome.threshold.min_lines_percent * 10.0;
+    if delta > 0.0 && measured_tenths < threshold_tenths + 1.0 {
         return "+<0.1pp".to_owned();
     }
-    if delta < 0.0 && delta > -0.1 {
+    if delta < 0.0 && measured_tenths > threshold_tenths - 1.0 {
         return "-<0.1pp".to_owned();
     }
 
@@ -223,6 +225,12 @@ mod tests {
     }
 
     #[test]
+    fn format_delta_renders_exact_tenth_boundaries_normally() {
+        assert_eq!(format_delta(&outcome(1_000, 821, 82.0)), "+0.1pp");
+        assert_eq!(format_delta(&outcome(1_000, 820, 82.1)), "-0.1pp");
+    }
+
+    #[test]
     fn format_delta_renders_exact_match_as_zero() {
         assert_eq!(format_delta(&outcome(100, 82, 82.0)), "0.0pp");
     }
@@ -237,14 +245,15 @@ mod tests {
     fn measured_percentages_round_down_for_display() {
         assert_eq!(format_lines(&outcome(2_000, 1_999, 100.0)), "99.9%");
         assert_eq!(format_lines(&outcome(10_000, 8_195, 82.0)), "81.9%");
+        assert_eq!(format_lines(&outcome(1_000, 821, 82.1)), "82.1%");
         assert_eq!(format_lines(&outcome(100, 100, 100.0)), "100.0%");
     }
 
     #[test]
-    fn floor_percent_for_display_keeps_one_decimal_without_rounding_up() {
-        assert!((floor_percent_for_display(99.95) - 99.9).abs() < f64::EPSILON);
-        assert!((floor_percent_for_display(81.999) - 81.9).abs() < f64::EPSILON);
-        assert!((floor_percent_for_display(100.0) - 100.0).abs() < f64::EPSILON);
+    fn format_percent_for_display_uses_exact_line_counts() {
+        assert_eq!(format_percent_for_display(&outcome(2_000, 1_999, 100.0)), "99.9%");
+        assert_eq!(format_percent_for_display(&outcome(1_000, 821, 82.1)), "82.1%");
+        assert_eq!(format_percent_for_display(&outcome(100, 100, 100.0)), "100.0%");
     }
 
     #[test]
