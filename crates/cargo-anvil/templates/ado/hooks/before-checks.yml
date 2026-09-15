@@ -1,0 +1,8 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+#
+# Repository check prerequisites. Customize this file; cargo-anvil preserves
+# edits on regeneration and proposes later catalog changes separately.
+# Runs per job after default checkout and input-artifact downloads, before
+# Anvil setup/checks. Include required authentication and platform conditions.
+steps: []
