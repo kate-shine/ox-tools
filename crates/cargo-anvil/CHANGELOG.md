@@ -6,6 +6,7 @@
 
 - ✨ Features
 
+  - pass engine context to image resolver ([#185](https://github.com/microsoft/ox-tools/pull/185))
   - add ADO before and after check hooks ([#183](https://github.com/microsoft/ox-tools/pull/183))
   - make impact cache inputs injectable ([#169](https://github.com/microsoft/ox-tools/pull/169))
 
@@ -13,6 +14,18 @@
 
   - stop writing an unparsable TOML host when a table is hand-written ([#162](https://github.com/microsoft/ox-tools/pull/162))
   - let a repository with no root toolchain file build the container image ([#161](https://github.com/microsoft/ox-tools/pull/161))
+
+- 📚 Documentation
+
+  - regenerate README with required tool version
+
+- ✔️ Tasks
+
+  - release v0.10.0
+
+- 🧩 Miscellaneous
+
+  - Merge remote-tracking branch 'origin/main' into u/mhavelka/update-release-0100
 
 ## [0.9.0] - 2026-09-08
 
