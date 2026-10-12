@@ -1,6 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+//! Queries crates.io tables and joins metadata, downloads, and owner identities.
+//!
+//! [`Provider`] loads tables through [`TableMgr`] and resolves batches of crate
+//! references. User profiles are joined with current OAuth GitHub logins before
+//! assembling appraisal facts.
+
 use core::fmt::Debug;
 use core::time::Duration;
 use std::collections::BTreeMap;
@@ -69,10 +75,16 @@ type VersionScanResult = (
     HashMap<VersionId, CrateId>,
 );
 
-type LookupTables = (
+#[derive(Debug, Clone, Copy)]
+struct UserLookup<'a> {
+    index: UsersTableIndex,
+    login: Option<&'a str>,
+}
+
+type LookupTables<'a> = (
     HashMap<CategoryId, CategoriesTableIndex>,
     HashMap<KeywordId, KeywordsTableIndex>,
-    HashMap<UserId, UsersTableIndex>,
+    HashMap<UserId, UserLookup<'a>>,
     HashMap<TeamId, TeamsTableIndex>,
 );
 
@@ -595,7 +607,7 @@ impl Provider {
     /// These tables are fully loaded into memory for fast random access. Each is a full scan of an
     /// independent table writing into its own map, so they are run on separate threads; the users
     /// table dominates and would otherwise serialize behind the others.
-    fn phase5_load_lookup_tables(&self) -> LookupTables {
+    fn phase5_load_lookup_tables(&self) -> LookupTables<'_> {
         std::thread::scope(|scope| {
             let categories = scope.spawn(|| self.load_categories());
             let keywords = scope.spawn(|| self.load_keywords());
@@ -694,7 +706,7 @@ impl Provider {
         crate_data: &HashMap<CrateId, PerCrateData>,
         categories: &HashMap<CategoryId, CategoriesTableIndex>,
         keywords: &HashMap<KeywordId, KeywordsTableIndex>,
-        users: &HashMap<UserId, UsersTableIndex>,
+        users: &HashMap<UserId, UserLookup<'_>>,
         teams: &HashMap<TeamId, TeamsTableIndex>,
         version_monthly_downloads: &HashMap<VersionId, Vec<(NaiveDate, u64)>>,
         crate_monthly_downloads: &HashMap<CrateId, Vec<(NaiveDate, u64)>>,
@@ -742,6 +754,15 @@ impl Provider {
             version_monthly_downloads,
             crate_monthly_downloads,
         );
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                return (
+                    CrateSpec::from_arcs(crate_ref.name_arc(), version_arc),
+                    ProviderResult::Error(Arc::new(error)),
+                );
+            }
+        };
 
         // Build the CrateSpec with the resolved version and repository information if available
         // Reuse the Arc pointers from crate_ref and version_arc (no allocations)
@@ -776,10 +797,21 @@ impl Provider {
         map
     }
 
-    fn load_users(&self) -> HashMap<UserId, UsersTableIndex> {
+    fn load_users(&self) -> HashMap<UserId, UserLookup<'_>> {
         let mut map = hash_map_with_capacity(self.table_mgr.users_table().iter().size_hint().0);
         for (row, index) in self.table_mgr.users_table().iter() {
-            let _ = map.insert(row.id, index);
+            let _ = map.insert(
+                row.id,
+                UserLookup {
+                    index,
+                    login: row.gh_login,
+                },
+            );
+        }
+        for (row, _) in self.table_mgr.oauth_github_table().iter() {
+            if let Some(user) = map.get_mut(&row.user_id) {
+                user.login = Some(row.login);
+            }
         }
         map
     }
@@ -790,6 +822,18 @@ impl Provider {
             let _ = map.insert(row.id, index);
         }
         map
+    }
+
+    fn user_owner(&self, user: &UserLookup<'_>, crate_name: &str) -> Result<Owner> {
+        let row = self.table_mgr.users_table().get(user.index);
+        let login = user
+            .login
+            .ok_or_else(|| ohno::app_err!("GitHub login unavailable for user {:?} owning crate '{crate_name}'", row.id))?;
+        Ok(Owner {
+            login: login.into(),
+            kind: PublicOwnerKind::User,
+            name: (!row.name.is_empty()).then(|| row.name.into()),
+        })
     }
 
     fn collect_crate_owners(&self, crate_data: &HashMap<CrateId, PerCrateData>) -> HashMap<CrateId, Vec<TableOwnerKind>> {
@@ -914,11 +958,11 @@ impl Provider {
         crate_data: &HashMap<CrateId, PerCrateData>,
         categories: &HashMap<CategoryId, CategoriesTableIndex>,
         keywords: &HashMap<KeywordId, KeywordsTableIndex>,
-        users: &HashMap<UserId, UsersTableIndex>,
+        users: &HashMap<UserId, UserLookup<'_>>,
         teams: &HashMap<TeamId, TeamsTableIndex>,
         version_monthly_downloads: &HashMap<VersionId, Vec<(NaiveDate, u64)>>,
         crate_monthly_downloads: &HashMap<CrateId, Vec<(NaiveDate, u64)>>,
-    ) -> CratesData {
+    ) -> Result<CratesData> {
         let version_row = self.table_mgr.versions_table().get(version_index);
         let version_data = CrateVersionData {
             description: version_row.description.into(),
@@ -942,18 +986,13 @@ impl Provider {
         let updated_at = crate_row.updated_at;
         let repository = crate_row.repository();
 
-        let owners: Vec<Owner> = per_crate_data
+        let owners = per_crate_data
             .owners
             .iter()
             .filter_map(|table_owner_kind| match table_owner_kind {
                 TableOwnerKind::User(user_id) => {
-                    if let Some(&user_index) = users.get(user_id) {
-                        let row = self.table_mgr.users_table().get(user_index);
-                        Some(Owner {
-                            login: row.gh_login.into(),
-                            kind: PublicOwnerKind::User,
-                            name: (!row.name.is_empty()).then(|| row.name.into()),
-                        })
+                    if let Some(user) = users.get(user_id) {
+                        Some(self.user_owner(user, crate_name))
                     } else {
                         log::debug!(target: LOG_TARGET_DB_CONTENT, "User ID {user_id:?} for crate '{crate_name}' not found in users table");
                         None
@@ -963,18 +1002,18 @@ impl Provider {
                     if let Some(&team_index) = teams.get(team_id) {
                         let row = self.table_mgr.teams_table().get(team_index);
                         let name = (!row.name.is_empty()).then(|| row.name.into());
-                        Some(Owner {
+                        Some(Ok(Owner {
                             login: row.login.into(),
                             kind: PublicOwnerKind::Team,
                             name,
-                        })
+                        }))
                     } else {
                         log::debug!(target: LOG_TARGET_DB_CONTENT, "Team ID {team_id:?} for crate '{crate_name}' not found in teams table");
                         None
                     }
                 }
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
         let category_list: Vec<CompactString> = per_crate_data
             .categories
@@ -1004,7 +1043,7 @@ impl Provider {
             })
             .collect();
 
-        CratesData::new(
+        Ok(CratesData::new(
             version_data,
             CrateOverallData {
                 created_at,
@@ -1020,7 +1059,7 @@ impl Provider {
                 versions_last_180_days: per_crate_data.versions_last_180_days,
                 versions_last_365_days: per_crate_data.versions_last_365_days,
             },
-        )
+        ))
     }
 }
 
