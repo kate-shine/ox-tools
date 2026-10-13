@@ -220,6 +220,7 @@ llvm-cov
 llvm-tools
 lockfile
 lockfiles
+logins
 lookahead
 lookups
 M365PT
@@ -262,6 +263,7 @@ non-mockable
 ns
 nuget
 NUMA
+OAuth
 observability
 ohno
 ok
