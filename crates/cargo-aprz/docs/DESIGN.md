@@ -47,10 +47,10 @@ These logins take precedence over the stale `users.gh_login` column in historica
 dumps. Dumps predating the OAuth table remain supported through that legacy
 column; current dumps need not contain it.
 
-An owner whose user profile exists but has no usable GitHub login produces an
-explicit per-crate collection error, never a fabricated empty login. Malformed
-OAuth identifiers, missing required OAuth columns, and empty OAuth logins fail
-dump preparation. Team owners continue to use `teams.csv`.
+This changes the source of user identities, not the existing missing-identity
+policy: empty logins remain empty and do not fail collection. Team owners
+continue to use `teams.csv`. CSV parsing uses the existing table conversion
+behavior without additional header or identity validation.
 
 The OAuth table is cached alongside the other binary tables. Caches created by
 older tool versions without that table are refreshed once before use, so stale

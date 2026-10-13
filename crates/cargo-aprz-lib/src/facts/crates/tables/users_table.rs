@@ -24,8 +24,8 @@ pub struct CsvUserRow<'a> {
 pub struct UserRow<'a> {
     /// crates.io user identifier.
     pub id: UserId,
-    /// GitHub login supplied by older dumps, when available.
-    pub gh_login: Option<&'a str>,
+    /// GitHub login supplied by older dumps, or empty when absent.
+    pub gh_login: &'a str,
     /// Display name, which may be empty.
     pub name: &'a str,
 }
@@ -42,11 +42,9 @@ define_table! {
         }
 
         fn read_row<'a>(reader: &mut RowReader<'a>) -> UserRow<'a> {
-            let id = UserId(reader.read_u64());
-            let gh_login = reader.read_str();
             UserRow {
-                id,
-                gh_login: (!gh_login.is_empty()).then_some(gh_login),
+                id: UserId(reader.read_u64()),
+                gh_login: reader.read_str(),
                 name: reader.read_str(),
             }
         }

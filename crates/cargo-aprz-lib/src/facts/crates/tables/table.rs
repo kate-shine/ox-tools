@@ -31,15 +31,6 @@ pub trait Table: Sized {
     const CSV_NAME: &'static str;
     const TABLE_NAME: &'static str;
 
-    /// Validates required column headers, including tables with no rows.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a table's required headers are missing.
-    fn validate_headers(_headers: &StringRecord) -> Result<()> {
-        Ok(())
-    }
-
     // CSV serialization
     fn write_row(csv_row: &Self::CsvRow<'_>, writer: &mut RowWriter<impl Write>) -> Result<()>;
     fn read_row<'a>(reader: &mut RowReader<'a>) -> Self::Row<'a>;
@@ -111,7 +102,6 @@ fn write_table_contents<T: Table>(writer: &mut (impl Write + Seek), csv_entry: i
     let mut csv_reader = Reader::from_reader(csv_entry);
     let mut row_writer = RowWriter::new(&mut *writer);
     let headers = csv_reader.headers().into_app_err("reading CSV headers")?.clone();
-    T::validate_headers(&headers).into_app_err("validating CSV headers")?;
     let mut record = StringRecord::new();
     while csv_reader.read_record(&mut record).into_app_err("reading CSV row")? {
         let row = record.deserialize(Some(&headers)).into_app_err("deserializing CSV row")?;
@@ -168,10 +158,6 @@ fn finish_table_header(writer: &mut (impl Write + Seek), count: u64, timestamp: 
 macro_rules! define_table {
     (
         $name_snake:ident {
-            $(
-                fn validate_headers($headers:ident: &$headers_ty:ty) -> Result<()>
-                    $headers_body:block
-            )?
             fn write_row($csv_param:ident: &$csv_ty:ty, $writer:ident: &mut RowWriter<impl Write>) -> Result<()>
                 $write_body:block
 
@@ -204,10 +190,6 @@ macro_rules! define_table {
             }
 
             impl super::Table for [<$name_snake:camel Table>] {
-                $(
-                    fn validate_headers($headers: &$headers_ty) -> crate::Result<()>
-                        $headers_body
-                )?
                 type CsvRow<'a> = $csv_ty;
                 type Row<'a> = $row_result;
                 type Index = [<$name_snake:camel Table Index>];

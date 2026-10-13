@@ -22,7 +22,4 @@ pub use crate_overall_data::CrateOverallData;
 #[cfg(not(miri))]
 pub use crate_version_data::CrateVersionData;
 pub use crates_data::CratesData;
-#[cfg(feature = "internals")]
-#[doc(inline)]
-pub use owner_kind::OwnerKind;
 pub use provider::{DEFAULT_DUMP_URL, Provider};

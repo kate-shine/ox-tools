@@ -78,7 +78,7 @@ type VersionScanResult = (
 #[derive(Debug, Clone, Copy)]
 struct UserLookup<'a> {
     index: UsersTableIndex,
-    login: Option<&'a str>,
+    login: &'a str,
 }
 
 type LookupTables<'a> = (
@@ -754,15 +754,6 @@ impl Provider {
             version_monthly_downloads,
             crate_monthly_downloads,
         );
-        let result = match result {
-            Ok(result) => result,
-            Err(error) => {
-                return (
-                    CrateSpec::from_arcs(crate_ref.name_arc(), version_arc),
-                    ProviderResult::Error(Arc::new(error)),
-                );
-            }
-        };
 
         // Build the CrateSpec with the resolved version and repository information if available
         // Reuse the Arc pointers from crate_ref and version_arc (no allocations)
@@ -810,7 +801,7 @@ impl Provider {
         }
         for (row, _) in self.table_mgr.oauth_github_table().iter() {
             if let Some(user) = map.get_mut(&row.user_id) {
-                user.login = Some(row.login);
+                user.login = row.login;
             }
         }
         map
@@ -824,16 +815,13 @@ impl Provider {
         map
     }
 
-    fn user_owner(&self, user: &UserLookup<'_>, crate_name: &str) -> Result<Owner> {
+    fn user_owner(&self, user: &UserLookup<'_>) -> Owner {
         let row = self.table_mgr.users_table().get(user.index);
-        let login = user
-            .login
-            .ok_or_else(|| ohno::app_err!("GitHub login unavailable for user {:?} owning crate '{crate_name}'", row.id))?;
-        Ok(Owner {
-            login: login.into(),
+        Owner {
+            login: user.login.into(),
             kind: PublicOwnerKind::User,
             name: (!row.name.is_empty()).then(|| row.name.into()),
-        })
+        }
     }
 
     fn collect_crate_owners(&self, crate_data: &HashMap<CrateId, PerCrateData>) -> HashMap<CrateId, Vec<TableOwnerKind>> {
@@ -962,7 +950,7 @@ impl Provider {
         teams: &HashMap<TeamId, TeamsTableIndex>,
         version_monthly_downloads: &HashMap<VersionId, Vec<(NaiveDate, u64)>>,
         crate_monthly_downloads: &HashMap<CrateId, Vec<(NaiveDate, u64)>>,
-    ) -> Result<CratesData> {
+    ) -> CratesData {
         let version_row = self.table_mgr.versions_table().get(version_index);
         let version_data = CrateVersionData {
             description: version_row.description.into(),
@@ -986,13 +974,13 @@ impl Provider {
         let updated_at = crate_row.updated_at;
         let repository = crate_row.repository();
 
-        let owners = per_crate_data
+        let owners: Vec<Owner> = per_crate_data
             .owners
             .iter()
             .filter_map(|table_owner_kind| match table_owner_kind {
                 TableOwnerKind::User(user_id) => {
                     if let Some(user) = users.get(user_id) {
-                        Some(self.user_owner(user, crate_name))
+                        Some(self.user_owner(user))
                     } else {
                         log::debug!(target: LOG_TARGET_DB_CONTENT, "User ID {user_id:?} for crate '{crate_name}' not found in users table");
                         None
@@ -1002,18 +990,18 @@ impl Provider {
                     if let Some(&team_index) = teams.get(team_id) {
                         let row = self.table_mgr.teams_table().get(team_index);
                         let name = (!row.name.is_empty()).then(|| row.name.into());
-                        Some(Ok(Owner {
+                        Some(Owner {
                             login: row.login.into(),
                             kind: PublicOwnerKind::Team,
                             name,
-                        }))
+                        })
                     } else {
                         log::debug!(target: LOG_TARGET_DB_CONTENT, "Team ID {team_id:?} for crate '{crate_name}' not found in teams table");
                         None
                     }
                 }
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect();
 
         let category_list: Vec<CompactString> = per_crate_data
             .categories
@@ -1043,7 +1031,7 @@ impl Provider {
             })
             .collect();
 
-        Ok(CratesData::new(
+        CratesData::new(
             version_data,
             CrateOverallData {
                 created_at,
@@ -1059,7 +1047,7 @@ impl Provider {
                 versions_last_180_days: per_crate_data.versions_last_180_days,
                 versions_last_365_days: per_crate_data.versions_last_365_days,
             },
-        ))
+        )
     }
 }
 
